@@ -1,5 +1,5 @@
-#implemented by junfeng Hu
-#28/6/2019
+# implemented by junfeng Hu
+# 28/6/2019
 
 import os
 import scipy.io as scio
@@ -7,7 +7,13 @@ import torch
 import numpy as np
 from torch.utils.data import Dataset
 
-def dataExract(lie_data_raw):
+
+def dataExtract(lie_data_raw):
+    """
+    It isn't convenient to extract .mat by python, you could use Matlab to look the struct of data
+    :param lie_data_raw: raw data
+    :return: the extracted data
+    """
 
     lie_data = {}
     lie_data['id'] = lie_data_raw[0][0][1][0][0][0][0]
@@ -83,16 +89,16 @@ dataDir = '..' + os.sep + 'data' + os.sep + 'g3d'
 train_config = r'liedb_g3d_lie20_half_inter.mat'
 lie_train_config = scio.loadmat(os.path.join(dataDir, train_config))
 lie_data_raw = lie_train_config['lie_train']
-lie_data = dataExract(lie_data_raw)
+lie_data = dataExtract(lie_data_raw)
 lie_data['dataDir'] = dataDir
 
-train_index = np.where(lie_data['set']==1)[0]
-test_index = np.where(lie_data['set']==2)[0]
+train_index = np.where(lie_data['set'] == 1)[0]
+test_index = np.where(lie_data['set'] == 2)[0]
 
-#train_index = train_index[np.random.permutation(train_index.shape[0])]
+# train_index = train_index[np.random.permutation(train_index.shape[0])]
 # #shuffle # there is no need to do this with pytorch
 
-#g = G3dDataset(lie_data, train_index, test_index, False)
-#sample = g[1]
+# g = G3dDataset(lie_data, train_index, test_index, False)
+# sample = g[1]
 
 
