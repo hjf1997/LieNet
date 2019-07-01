@@ -116,8 +116,8 @@ class Pooling(torch.nn.Module):
     def max_rot_angel_batch(self, r): # frame, N,  num, D_in, D_in
         r_a = self.cal_roc_angel_batch(r) # frame, N,  num
         r_a = r_a.view(r_a.shape[0], r_a.shape[1], int(r_a.shape[2]/2), 2)
-        r_a, _ = torch.max(r_a, 3)
-        return r_a
+        r_a, i = torch.max(r_a, 3)
+        return i
 
     def forward(self, x):
         """
@@ -136,7 +136,8 @@ class Pooling(torch.nn.Module):
                         Y[i0, :, :, int(i3/2), i4] = r_tt[:, :, I]
             # batch version
             x = x.permute(4, 0, 3, 1, 2)  # frame, N,  num, D_in, D_in
-            x = self.max_rot_angel_batch(x) #
+            x = x.view(x.shape[0], x.shape[1], int(x.shape[2]/2), 2, x.shape[3], x.shape[4])
+            i = self.max_rot_angel_batch(x)
         else:
             Y = torch.zeros((x.shape[0], x.shape[1], x.shape[2], x.shape[3], math.ceil(x.shape[4] /4)))
 
