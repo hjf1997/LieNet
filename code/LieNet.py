@@ -2,6 +2,9 @@ import torch
 import numpy as np
 import torch.nn as nn
 import math
+import time
+from torch.multiprocessing import Pool
+from numba import jit, prange
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class LieNet(nn.Module):
@@ -19,22 +22,46 @@ class LieNet(nn.Module):
         self.fc1 = nn.Linear(4788, 20)
 
     def forward(self, x):
+        s = time.time()
         x = self.rot1(x)
+        print(time.time() - s)
         print(x.shape)
+
+        s = time.time()
         x = self.pool1(x)
+        print(time.time() - s)
         print(x.shape)
+
+        s = time.time()
         x = self.rot2(x)
+        print(time.time() - s)
         print(x.shape)
+
+        s = time.time()
         x = self.pool2(x)
+        print(time.time() - s)
         print(x.shape)
+
+        s = time.time()
         x = self.rot3(x)
+        print(time.time() - s)
         print(x.shape)
+
+        s = time.time()
         x = self.pool3(x)
+        print(time.time() - s)
         print(x.shape)
+
+        s = time.time()
         x = self.log(x)
+        print(time.time() - s)
         print(x.shape)
+
+        s = time.time()
         x = self.relu(x)
+        print(time.time() - s)
         print(x.shape)
+
         x = self.fc1(x.transpose(1, 0))
         return x
 
@@ -48,13 +75,13 @@ class Pooling(torch.nn.Module):
 
     def cal_roc_angel(self, r):
         epsilon = 1e-12;
-        mtrc = torch.trace(r)
+        mtrc = torch.trace(r)  # need about 9 seconds
         if torch.abs(mtrc - 3) <= epsilon:
             a = 0
         elif torch.abs(mtrc + 1) <= epsilon:
             a = np.pi
         else:
-            a = torch.acos((mtrc - 1)/2)
+            a = torch.acos((mtrc - 1)/2)  # need little time
         return a
 
     def max_rot_angel(self, r):
@@ -66,6 +93,31 @@ class Pooling(torch.nn.Module):
                 m_r = r_a
                 i_r = i
         return i_r
+
+    def cal_roc_angel_batch(self, r): # frame, N,  num, D_in, D_in
+        epsilon = 1e-12;
+        mtrc = torch.zeros(r.shape[0], r.shape[1], r.shape[2])
+        for i in range(r.shape[0]):
+            for j in range(r.shape[1]):
+                for z in range(r.shape[2]):
+                    mtrc[i, j, z] = torch.trace(r[i, j, z, :, :]) # need about 9 seconds
+
+        #mask0 = torch.abs(mtrc - 3) > epsilon
+        #mtrc0 = mtrc * mask0.float()
+
+        maskpi = (torch.abs(mtrc + 1) > epsilon) * (torch.abs(mtrc - 3) <= epsilon)
+        mtrcpi = mtrc * maskpi.float() * np.pi
+
+        maskacos = (torch.abs(mtrc + 1) <= epsilon)
+        mtrcacos = torch.acos(mtrc) * maskacos.float()
+
+        return mtrcpi + mtrcacos
+
+    def max_rot_angel_batch(self, r): # frame, N,  num, D_in, D_in
+        r_a = self.cal_roc_angel_batch(r) # frame, N,  num
+        r_a = r_a.view(r_a.shape[0], r_a.shape[1], int(r_a.shape[2]/2), 2)
+        r_a, _ = torch.max(r_a, 3)
+        return r_a
 
     def forward(self, x):
         """
@@ -82,6 +134,9 @@ class Pooling(torch.nn.Module):
                         r_tt = x[i0, :, :, i3:i3+2, i4]
                         I = self.max_rot_angel(r_tt)
                         Y[i0, :, :, int(i3/2), i4] = r_tt[:, :, I]
+            # batch version
+            x = x.permute(4, 0, 3, 1, 2)  # frame, N,  num, D_in, D_in
+            x = self.max_rot_angel_batch(x) #
         else:
             Y = torch.zeros((x.shape[0], x.shape[1], x.shape[2], x.shape[3], math.ceil(x.shape[4] /4)))
 
@@ -115,7 +170,18 @@ class LogMap(torch.nn.Module):
                     axis[:3] = self.cal_roc_axis(r_t)
                     axis[3] = self.cal_roc_angel(r_t)
                     Y[i3 * 4 * x.shape[4] + i4 * 4:i3 * 4 * x.shape[4] + i4 * 4 + 4, i0] = axis.view(-1)
+        # batch version
+        # Y = torch.zeros(x.shape[4], x.shape[3], x.shape[0], x.shape[1], x.shape[2])
+        # x = x.permute(4, 3, 0, 1, 2).view(-1, x.shape[3], x.shape[4])  # [frame, num, N ,D_in, D_in]
+        # asix = self.cal_roc_axis_bath(x)
+        # angel = self.cal_roc_angel(x)
         return Y
+
+    def cal_roc_angel_batch(self, r):
+        pass
+
+    def cal_roc_axis_batch(self, r):
+        pass
 
     def cal_roc_angel(self, r):
         epsilon = 1e-12;
@@ -142,18 +208,28 @@ class Relu(torch.nn.Module):
 
     def forward(self, x):
         epslon = 0.3
-        Y = torch.zeros_like(x)
-        for j in range(x.shape[1]):
-            for i in range(int(x.shape[0] / 4)):
-                r_t = x[i * 4: i * 4 + 4, j]
-                ir_t1 = torch.abs(r_t) < epslon
-                ir_t2 = r_t < 0
-                for k in range(r_t.shape[0]):
-                    if ir_t1[k].item() == 1 and ir_t2[k].item() == 1:
-                        r_t[k] = -epslon
-                    elif ir_t1[k].item() == 1 and ir_t2[k].item() == 0:
-                        r_t[k] = epslon
-                Y[i * 4: i * 4 + 4, j] = r_t
+
+        # Y = torch.zeros_like(x)
+        # for j in range(x.shape[1]):
+        #     for i in range(int(x.shape[0] / 4)):
+        #         r_t = x[i * 4: i * 4 + 4, j]
+        #         ir_t1 = torch.abs(r_t) < epslon
+        #         ir_t2 = r_t < 0
+        #         for k in range(r_t.shape[0]):
+        #             if ir_t1[k].item() == 1 and ir_t2[k].item() == 1:
+        #                 r_t[k] = -epslon
+        #             elif ir_t1[k].item() == 1 and ir_t2[k].item() == 0:
+        #                 r_t[k] = epslon
+        #         Y[i * 4: i * 4 + 4, j] = r_t
+
+        # batch version
+        r_max = torch.max(x, torch.tensor(epslon))
+        r_mask = x > 0
+        r_positive = torch.mul(r_max, r_mask.float())
+        r_min = torch.min(x, torch.tensor(-epslon))
+        r_mask = x < 0
+        r_negative = torch.mul(r_min, r_mask.float())
+        Y = r_positive + r_negative
         return Y
 
 
@@ -175,19 +251,28 @@ class RotMap(torch.nn.Module):
         :param x: train or test with the dimension of [N ,D_in, D_in, num, frame]
         :return:
         """
-        for i in range(x.shape[0]):
-            for j in range(x.shape[4]):
-                for z in range(x.shape[3]):
-                    x[i, :, :, z, j] = self.w[:, :, z].mm(x[i, :, :, z, j])
+        # batch version
+        x = x.permute(4, 0, 3, 1, 2) #frame, N,  num, D_in, D_in
+        w = self.w.permute(2, 0, 1)
+        w = w.unsqueeze(0).unsqueeze(0).expand(x.shape[0], x.shape[1], x.shape[2], x.shape[3], x.shape[4])
+        x = torch.matmul(w, x)
+        x = x.permute(1, 3, 4, 2, 0)
+
+        #for i in prange(x.shape[0]):
+        #    for j in prange(x.shape[4]):
+        #        for z in prange(x.shape[3]):
+        #            x[i, :, :, z, j] = self.w[:, :, z].mm(x[i, :, :, z, j])
+                    #li.append([i, j, z])
+
         return x
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(device)
 net = LieNet()
-train = torch.randn(30,3,3,342,100).to(device)
+train = torch.randn(30, 3, 3, 342, 100).to(device)
 print(net.parameters())
 net.to(device)
 y = net(train)
-
+#y = net.relu(train)
 
