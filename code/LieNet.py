@@ -96,12 +96,15 @@ class Pooling(torch.nn.Module):
 
     def cal_roc_angel_batch(self, r): # frame, N,  num, D_in, D_in
         epsilon = 1e-12;
-        mtrc = torch.zeros(r.shape[0], r.shape[1], r.shape[2])
-        for i in range(r.shape[0]):
-            for j in range(r.shape[1]):
-                for z in range(r.shape[2]):
-                    mtrc[i, j, z] = torch.trace(r[i, j, z, :, :]) # need about 9 seconds
-
+        # mtrc = torch.zeros(r.shape[0], r.shape[1], r.shape[2])
+        # for i in range(r.shape[0]):
+        #     for j in range(r.shape[1]):
+        #         for z in range(r.shape[2]):
+        #             mtrc[i, j, z] = torch.trace(r[i, j, z, :, :])  # need about 9 seconds
+        tr = BatchTrace()
+        s = time.time()
+        mtrc = tr(r)
+        print(time.time() - s)
         #mask0 = torch.abs(mtrc - 3) > epsilon
         #mtrc0 = mtrc * mask0.float()
 
@@ -113,9 +116,9 @@ class Pooling(torch.nn.Module):
 
         return mtrcpi + mtrcacos
 
-    def max_rot_angel_batch(self, r): # frame, N,  num, D_in, D_in
-        r_a = self.cal_roc_angel_batch(r) # frame, N,  num
-        r_a = r_a.view(r_a.shape[0], r_a.shape[1], int(r_a.shape[2]/2), 2)
+    def max_rot_angel_batch(self, r, type): # frame, N,  num, D_in, D_in
+        r_a = self.cal_roc_angel_batch(r)  # frame, N,  num
+        r_a = r_a.view(r_a.shape[0], r_a.shape[1], int(r_a.shape[2]/type), type)
         r_a, i = torch.max(r_a, 3)
         return i
 
@@ -126,32 +129,44 @@ class Pooling(torch.nn.Module):
         """
         if self.pool == 'space':
             assert x.shape[3] % 2 == 0
-            Y = torch.zeros((x.shape[0], x.shape[1], x.shape[2], int(x.shape[3]/2), x.shape[4]))
+            # Y = torch.zeros((x.shape[0], x.shape[1], x.shape[2], int(x.shape[3]/2), x.shape[4]))
 
-            for i4 in range(x.shape[4]):
-                for i0 in range(x.shape[0]):
-                    for i3 in range(0,  x.shape[3], 2):
-                        r_tt = x[i0, :, :, i3:i3+2, i4]
-                        I = self.max_rot_angel(r_tt)
-                        Y[i0, :, :, int(i3/2), i4] = r_tt[:, :, I]
+            # for i4 in range(x.shape[4]):
+            #     for i0 in range(x.shape[0]):
+            #         for i3 in range(0,  x.shape[3], 2):
+            #             r_tt = x[i0, :, :, i3:i3+2, i4]
+            #             I = self.max_rot_angel(r_tt)
+            #             Y[i0, :, :, int(i3/2), i4] = r_tt[:, :, I]
             # batch version
             x = x.permute(4, 0, 3, 1, 2)  # frame, N,  num, D_in, D_in
-            x = x.view(x.shape[0], x.shape[1], int(x.shape[2]/2), 2, x.shape[3], x.shape[4])
-            i = self.max_rot_angel_batch(x)
+            I = self.max_rot_angel_batch(x, 2)  # frame, N,  num/2
+            I = I.view(-1)  # frame * N * num/2
+            x = x.view(x.shape[0] * x.shape[1] * int(x.shape[2] / 2), 2, x.shape[3], x.shape[4])
+            # frame * N * num/2, 2, D_in, D_in
+            Y = x[[i for i in range(x.shape[0])], I, :, :]
+            Y = Y.view()
+            # for i0 in range(x.shape[0]):
+            #     for i1 in range(x.shape[1]):
+            #         for i2 in range(x.shape[2]):
+            #             Y[i1, :, :, i2, i0] = x[i0, i1, i2, I[i0, i1, i2], :, :]
+
         else:
             Y = torch.zeros((x.shape[0], x.shape[1], x.shape[2], x.shape[3], math.ceil(x.shape[4] /4)))
+            # batch version
+            x = x.permute(3, 0, 4, 1, 2)
 
-            for i0 in range(x.shape[0]):
-                for i3 in range(x.shape[3]):
-                    for i4 in range(0, x.shape[4], 4):
-                        if i4 + 3 < x.shape[4]:
-                            r_tt = x[i0, :, :, i3, i4:i4+4]
-                            I = self.max_rot_angel(r_tt)
-                            Y[i0, :, :, i3, int(i4/4)] = r_tt[:, :, I]
-                        else:
-                            r_tt = x[i0, :, :, i3, i4:]
-                            I = self.max_rot_angel(r_tt)
-                            Y[i0, :, :, i3, -1] = r_tt[:, :, I]
+
+            # for i0 in range(x.shape[0]):
+            #     for i3 in range(x.shape[3]):
+            #         for i4 in range(0, x.shape[4], 4):
+            #             if i4 + 3 < x.shape[4]:
+            #                 r_tt = x[i0, :, :, i3, i4:i4+4]
+            #                 I = self.max_rot_angel(r_tt)
+            #                 Y[i0, :, :, i3, int(i4/4)] = r_tt[:, :, I]
+            #             else:
+            #                 r_tt = x[i0, :, :, i3, i4:]
+            #                 I = self.max_rot_angel(r_tt)
+            #                 Y[i0, :, :, i3, -1] = r_tt[:, :, I]
         return Y
 
 
@@ -266,6 +281,16 @@ class RotMap(torch.nn.Module):
                     #li.append([i, j, z])
 
         return x
+
+class BatchTrace(torch.nn.Module):
+
+    def forward(self, x):
+        assert x.shape[-1] == x.shape[-2]
+        s = x.shape
+        x = x.view(-1,x.shape[-1], x.shape[-2])
+        tr = x[:, 0, 0] + x[:, 1, 1] + x[:, 2, 2]
+        tr = tr.view(s[:-2])
+        return tr
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
