@@ -19,7 +19,7 @@ class LieNet(nn.Module):
         self.pool3 = Pooling('time')
         self.log = LogMap()
         self.relu = Relu()
-        self.fc1 = nn.Linear(4788, 20)
+        self.fc1 = nn.Linear(4104, 20)
 
     def forward(self, x):
         s = time.time()
@@ -62,7 +62,7 @@ class LieNet(nn.Module):
         print(time.time() - s)
         print(x.shape)
 
-        x = self.fc1(x.transpose(1, 0))
+        #x = self.fc1(x.transpose(1, 0))
         return x
 
 
@@ -102,9 +102,7 @@ class Pooling(torch.nn.Module):
         #         for z in range(r.shape[2]):
         #             mtrc[i, j, z] = torch.trace(r[i, j, z, :, :])  # need about 9 seconds
         tr = BatchTrace()
-        s = time.time()
         mtrc = tr(r)
-        print(time.time() - s)
         #mask0 = torch.abs(mtrc - 3) > epsilon
         #mtrc0 = mtrc * mask0.float()
 
@@ -139,22 +137,30 @@ class Pooling(torch.nn.Module):
             #             Y[i0, :, :, int(i3/2), i4] = r_tt[:, :, I]
             # batch version
             x = x.permute(4, 0, 3, 1, 2)  # frame, N,  num, D_in, D_in
+            shape = x.shape
             I = self.max_rot_angel_batch(x, 2)  # frame, N,  num/2
             I = I.view(-1)  # frame * N * num/2
             x = x.view(x.shape[0] * x.shape[1] * int(x.shape[2] / 2), 2, x.shape[3], x.shape[4])
             # frame * N * num/2, 2, D_in, D_in
-            Y = x[[i for i in range(x.shape[0])], I, :, :]
-            Y = Y.view()
-            # for i0 in range(x.shape[0]):
-            #     for i1 in range(x.shape[1]):
-            #         for i2 in range(x.shape[2]):
-            #             Y[i1, :, :, i2, i0] = x[i0, i1, i2, I[i0, i1, i2], :, :]
+            Y = x[[i for i in range(x.shape[0])], I, :, :]  # frame * N * num/2,  D_in, D_in
+            Y = Y.view(shape[0], shape[1], int(shape[2]/2), shape[3], shape[4])  # frame , N , num/2,  D_in, D_in
+            Y = Y.permute(1, 3, 4, 2, 0)  # N, D_in, D_in, num/2, frame
 
         else:
             Y = torch.zeros((x.shape[0], x.shape[1], x.shape[2], x.shape[3], math.ceil(x.shape[4] /4)))
             # batch version
-            x = x.permute(3, 0, 4, 1, 2)
-
+            x = x.permute(3, 0, 4, 1, 2)  # num, N,  frame, D_in, D_in
+            leak = x.shape[2] % 4
+            x_ = x[:, :, :x.shape[2]-x.shape[2]%4, :, :]
+            shape = x_.shape
+            I = self.max_rot_angel_batch(x_, 4)
+            I = I.view(-1)  # num, N, frame/4
+            x_ = x_.contiguous().view(x_.shape[0] * x_.shape[1] * int(x_.shape[2] / 4), 4, x_.shape[3], x_.shape[4])
+            Y = x_[[i for i in range(x_.shape[0])], I, :, :]
+            Y = Y.view(shape[0], shape[1], int(shape[2]/4), shape[3], shape[4])  # num , N , frame/4,  D_in, D_in
+            Y = Y.permute(1, 3, 4, 0, 2)
+            #if leak != 0:
+            #    pass
 
             # for i0 in range(x.shape[0]):
             #     for i3 in range(x.shape[3]):
@@ -177,27 +183,53 @@ class LogMap(torch.nn.Module):
         :param X: train or test  data with the dimension of [N ,D_in, D_in, num, frame]
         :return:
         """
-        Y = torch.zeros((4 * x.shape[3] * x.shape[4], x.shape[0]))
-        for i0 in range(x.shape[0]):
-            for i3 in range(x.shape[3]):
-                for i4 in range(x.shape[4]):
-                    r_t = x[i0, :, :, i3, i4]
-                    axis = torch.zeros(4)
-                    axis[:3] = self.cal_roc_axis(r_t)
-                    axis[3] = self.cal_roc_angel(r_t)
-                    Y[i3 * 4 * x.shape[4] + i4 * 4:i3 * 4 * x.shape[4] + i4 * 4 + 4, i0] = axis.view(-1)
+        # Y = torch.zeros((4 * x.shape[3] * x.shape[4], x.shape[0]))
+        # for i0 in range(x.shape[0]):
+        #     for i3 in range(x.shape[3]):
+        #         for i4 in range(x.shape[4]):
+        #             r_t = x[i0, :, :, i3, i4]
+        #             axis = torch.zeros(4)
+        #             axis[:3] = self.cal_roc_axis(r_t)
+        #             axis[3] = self.cal_roc_angel(r_t)
+        #             Y[i3 * 4 * x.shape[4] + i4 * 4:i3 * 4 * x.shape[4] + i4 * 4 + 4, i0] = axis.view(-1)
         # batch version
         # Y = torch.zeros(x.shape[4], x.shape[3], x.shape[0], x.shape[1], x.shape[2])
-        # x = x.permute(4, 3, 0, 1, 2).view(-1, x.shape[3], x.shape[4])  # [frame, num, N ,D_in, D_in]
-        # asix = self.cal_roc_axis_bath(x)
-        # angel = self.cal_roc_angel(x)
+        x = x.permute(3, 4, 0, 1, 2)  # [ num, frame, N ,D_in, D_in]
+        asix = self.cal_roc_axis_batch(x) #[ num, frame, N, 3]
+        angel = self.cal_roc_angel_batch(x).unsqueeze(3) # num, frame, N,1
+        Y = torch.cat([asix, angel], dim=3)
+        Y = Y.permute(2, 0, 1, 3)  # N, num, frame, 4
+        Y = Y.contiguous().view(Y.shape[0], -1)
         return Y
 
-    def cal_roc_angel_batch(self, r):
-        pass
+    def cal_roc_angel_batch(self, r): # frame, N,  num, D_in, D_in
+        epsilon = 1e-12;
+        # mtrc = torch.zeros(r.shape[0], r.shape[1], r.shape[2])
+        # for i in range(r.shape[0]):
+        #     for j in range(r.shape[1]):
+        #         for z in range(r.shape[2]):
+        #             mtrc[i, j, z] = torch.trace(r[i, j, z, :, :])  # need about 9 seconds
+        tr = BatchTrace()
+        mtrc = tr(r)
+        #mask0 = torch.abs(mtrc - 3) > epsilon
+        #mtrc0 = mtrc * mask0.float()
 
-    def cal_roc_axis_batch(self, r):
-        pass
+        maskpi = (torch.abs(mtrc + 1) > epsilon) * (torch.abs(mtrc - 3) <= epsilon)
+        mtrcpi = mtrc * maskpi.float() * np.pi
+
+        maskacos = (torch.abs(mtrc + 1) <= epsilon)
+        mtrcacos = torch.acos(mtrc) * maskacos.float()
+
+        return mtrcpi + mtrcacos
+
+    def cal_roc_axis_batch(self,r): # [ num, frame, N ,D_in, D_in]
+        angel = self.cal_roc_angel_batch(r)  # [ num, frame, N]
+        sin = torch.sin(angel)
+        log = (angel / (2 * sin)).unsqueeze(3).unsqueeze(4) * (r - r.permute(0, 1, 2, 4, 3))
+        fi = torch.stack([log[:, :, :, 2, 1], log[:, :, :, 2, 0], log[:, :, :, 1, 0]], dim=3) #[ num, frame, N , 3]
+        #print(torch.norm(fi, 2, 3).shape)
+        fi = fi / torch.norm(fi, 2, 3).unsqueeze(3) #[ num, frame, N , 3]
+        return fi
 
     def cal_roc_angel(self, r):
         epsilon = 1e-12;
@@ -285,9 +317,12 @@ class RotMap(torch.nn.Module):
 class BatchTrace(torch.nn.Module):
 
     def forward(self, x):
+        #print(x.shape)
         assert x.shape[-1] == x.shape[-2]
         s = x.shape
-        x = x.view(-1,x.shape[-1], x.shape[-2])
+        #torch.contiguous()
+        x = x.contiguous().view(-1, x.shape[-2], x.shape[-1])
+        #print(x.shape)
         tr = x[:, 0, 0] + x[:, 1, 1] + x[:, 2, 2]
         tr = tr.view(s[:-2])
         return tr
