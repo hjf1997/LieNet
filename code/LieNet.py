@@ -4,7 +4,6 @@ import torch.nn as nn
 import math
 import time
 from torch.multiprocessing import Pool
-from numba import jit, prange
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def so3Check(r): #  [N ,D_in, D_in, num, frame]
@@ -33,56 +32,56 @@ class LieNet(nn.Module):
         self.fc1 = nn.Linear(4104, 20)
 
     def forward(self, x):
-        s = time.time()
+        # s = time.time()
         x = self.rot1(x)
-        print(time.time() - s)
-        print(x.shape)
+        # print(time.time() - s)
+        # print(x.shape)
         #so3Check(x)
 
-        s = time.time()
+        # s = time.time()
         x = self.pool1(x)
-        print(time.time() - s)
-        print(x.shape)
+        # print(time.time() - s)
+        # print(x.shape)
         #so3Check(x)
 
-        s = time.time()
+        # s = time.time()
         x = self.rot2(x)
-        print(time.time() - s)
-        print(x.shape)
+        # print(time.time() - s)
+        # print(x.shape)
         #so3Check(x)
 
-        s = time.time()
+        #s = time.time()
         x = self.pool2(x)
-        print(time.time() - s)
-        print(x.shape)
+        #print(time.time() - s)
+        #print(x.shape)
         #so3Check(x)
 
-        s = time.time()
+        # s = time.time()
         x = self.rot3(x)
-        print(time.time() - s)
-        print(x.shape)
+        # print(time.time() - s)
+        # print(x.shape)
         #so3Check(x)
 
-        s = time.time()
+        # s = time.time()
         x = self.pool3(x)
-        print(time.time() - s)
-        print(x.shape)
+        #print(time.time() - s)
+        #print(x.shape)
         #so3Check(x)
 
-        s = time.time()
+        # s = time.time()
         x = self.log(x)
-        print(time.time() - s)
-        print(x.shape)
+        # print(time.time() - s)
+        # print(x.shape)
 
-        s = time.time()
+        # s = time.time()
         x = self.relu(x)
-        print(time.time() - s)
-        print(x.shape)
+        # print(time.time() - s)
+        # print(x.shape)
 
-        s = time.time()
+        # s = time.time()
         x = self.fc1(x)
-        print(time.time() - s)
-        print(x.shape)
+        # print(time.time() - s)
+        # print(x.shape)
 
         return x
 
