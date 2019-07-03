@@ -44,12 +44,22 @@ def convert4d(fea):
 class G3dDataset(Dataset):
     """G3dDataset"""
 
-    def __init__(self, lie_data, train_index, test_index, train):
+    def __init__(self, train):
         """
         :param lie_data:  contains the path of each sample, the label as well as train or test indicator
         :param train_index: the ids of  samples belonging to train set
         :param train: train or test
         """
+        dataDir = '.' + os.sep + 'data' + os.sep + 'g3d'
+        train_config = r'liedb_g3d_lie20_half_inter.mat'
+        lie_train_config = scio.loadmat(os.path.join(dataDir, train_config))
+        lie_data_raw = lie_train_config['lie_train']
+        lie_data = dataExtract(lie_data_raw)
+        lie_data['dataDir'] = dataDir
+
+        train_index = np.where(lie_data['set'] == 1)[0]
+        test_index = np.where(lie_data['set'] == 2)[0]
+
         self.lie_data = lie_data
         self.train_index = train_index
         self.test_index = test_index
@@ -60,7 +70,7 @@ class G3dDataset(Dataset):
         else:
             index = test_index
 
-        lie_path = lie_data['dataDir'] + os.sep + lie_data['name'][1]
+        lie_path = (lie_data['dataDir'] + os.sep + lie_data['name'][1]).replace('\\', os.sep)
         fea = scio.loadmat(lie_path)
         fea4D = convert4d(fea)
 
@@ -68,7 +78,7 @@ class G3dDataset(Dataset):
         labels = np.zeros((index.shape[0]))
 
         for i in range(index.shape[0]):
-            liePath = lie_data['dataDir'] + os.sep + lie_data['name'][index[i]]
+            liePath = (lie_data['dataDir'] + os.sep + lie_data['name'][index[i]]).replace('\\', os.sep)
             fea = scio.loadmat(liePath)
             fea4D = convert4d(fea)
             feas[i, :, :, :, :] = fea4D
@@ -81,24 +91,15 @@ class G3dDataset(Dataset):
         return self.feas.shape[0]
 
     def __getitem__(self, idx):
-        sample = {'fea': self.feas[idx, :, :, :, :], 'label': self.labels[idx]}
+        sample = {'fea': self.feas[idx, :, :, :, :], 'label': int(self.labels[idx])}
         return sample
-
-
-dataDir = '..' + os.sep + 'data' + os.sep + 'g3d'
-train_config = r'liedb_g3d_lie20_half_inter.mat'
-lie_train_config = scio.loadmat(os.path.join(dataDir, train_config))
-lie_data_raw = lie_train_config['lie_train']
-lie_data = dataExtract(lie_data_raw)
-lie_data['dataDir'] = dataDir
-
-train_index = np.where(lie_data['set'] == 1)[0]
-test_index = np.where(lie_data['set'] == 2)[0]
 
 # train_index = train_index[np.random.permutation(train_index.shape[0])]
 # #shuffle # there is no need to do this with pytorch
 
-# g = G3dDataset(lie_data, train_index, test_index, False)
-# sample = g[1]
+#g = G3dDataset( False)
+#k = torch.utils.data.dataloader(g, 4, True, 4)
+#sample = g[1]
+#print(sample)
 
 

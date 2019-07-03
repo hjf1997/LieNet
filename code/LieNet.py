@@ -7,6 +7,17 @@ from torch.multiprocessing import Pool
 from numba import jit, prange
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+def so3Check(r): #  [N ,D_in, D_in, num, frame]
+    for i0 in range(r.shape[0]):
+        for i3 in range(r.shape[3]):
+            for i4 in range(r.shape[4]):
+                k = r[i0,:,:, i3, i4].mm(r[i0,:,:, i3, i4].t())
+                dig = k[0, 0] + k[1, 1] +k[2, 2]
+                d = abs(dig.item() - 3.)
+                if d > 0.01:
+                    print("Sth goes wrong: i0={0} i3={1} i4={2} dig={3}".format(i0, i3, i4, dig))
+                    assert d <= 0.01
+
 class LieNet(nn.Module):
 
     def __init__(self):
@@ -26,31 +37,37 @@ class LieNet(nn.Module):
         x = self.rot1(x)
         print(time.time() - s)
         print(x.shape)
+        #so3Check(x)
 
         s = time.time()
         x = self.pool1(x)
         print(time.time() - s)
         print(x.shape)
+        #so3Check(x)
 
         s = time.time()
         x = self.rot2(x)
         print(time.time() - s)
         print(x.shape)
+        #so3Check(x)
 
         s = time.time()
         x = self.pool2(x)
         print(time.time() - s)
         print(x.shape)
+        #so3Check(x)
 
         s = time.time()
         x = self.rot3(x)
         print(time.time() - s)
         print(x.shape)
+        #so3Check(x)
 
         s = time.time()
         x = self.pool3(x)
         print(time.time() - s)
         print(x.shape)
+        #so3Check(x)
 
         s = time.time()
         x = self.log(x)
@@ -62,7 +79,11 @@ class LieNet(nn.Module):
         print(time.time() - s)
         print(x.shape)
 
-        #x = self.fc1(x.transpose(1, 0))
+        s = time.time()
+        x = self.fc1(x)
+        print(time.time() - s)
+        print(x.shape)
+
         return x
 
 
@@ -106,11 +127,11 @@ class Pooling(torch.nn.Module):
         #mask0 = torch.abs(mtrc - 3) > epsilon
         #mtrc0 = mtrc * mask0.float()
 
-        maskpi = (torch.abs(mtrc + 1) > epsilon) * (torch.abs(mtrc - 3) <= epsilon)
+        maskpi = (torch.abs(mtrc + 1) <= epsilon) * (torch.abs(mtrc - 3) > epsilon)
         mtrcpi = mtrc * maskpi.float() * np.pi
 
-        maskacos = (torch.abs(mtrc + 1) <= epsilon)
-        mtrcacos = torch.acos(mtrc) * maskacos.float()
+        maskacos = (torch.abs(mtrc + 1) > epsilon) * (torch.abs(mtrc - 3) > epsilon)
+        mtrcacos = torch.acos((mtrc-1)/2) * maskacos.float()
 
         return mtrcpi + mtrcacos
 
@@ -195,8 +216,8 @@ class LogMap(torch.nn.Module):
         # batch version
         # Y = torch.zeros(x.shape[4], x.shape[3], x.shape[0], x.shape[1], x.shape[2])
         x = x.permute(3, 4, 0, 1, 2)  # [ num, frame, N ,D_in, D_in]
-        asix = self.cal_roc_axis_batch(x) #[ num, frame, N, 3]
-        angel = self.cal_roc_angel_batch(x).unsqueeze(3) # num, frame, N,1
+        asix = self.cal_roc_axis_batch(x)  # [ num, frame, N, 3]
+        angel = self.cal_roc_angel_batch(x).unsqueeze(3)  # num, frame, N,1
         Y = torch.cat([asix, angel], dim=3)
         Y = Y.permute(2, 0, 1, 3)  # N, num, frame, 4
         Y = Y.contiguous().view(Y.shape[0], -1)
@@ -214,17 +235,18 @@ class LogMap(torch.nn.Module):
         #mask0 = torch.abs(mtrc - 3) > epsilon
         #mtrc0 = mtrc * mask0.float()
 
-        maskpi = (torch.abs(mtrc + 1) > epsilon) * (torch.abs(mtrc - 3) <= epsilon)
+        maskpi = (torch.abs(mtrc + 1) <= epsilon) * (torch.abs(mtrc - 3) > epsilon)
         mtrcpi = mtrc * maskpi.float() * np.pi
 
-        maskacos = (torch.abs(mtrc + 1) <= epsilon)
-        mtrcacos = torch.acos(mtrc) * maskacos.float()
+        maskacos = (torch.abs(mtrc + 1) > epsilon) * (torch.abs(mtrc - 3) > epsilon)
+        mtrcacos = torch.acos((mtrc-1)/2) * maskacos.float()
 
         return mtrcpi + mtrcacos
 
     def cal_roc_axis_batch(self,r): # [ num, frame, N ,D_in, D_in]
         angel = self.cal_roc_angel_batch(r)  # [ num, frame, N]
         sin = torch.sin(angel)
+        #print(sin[0, 0, 0])
         log = (angel / (2 * sin)).unsqueeze(3).unsqueeze(4) * (r - r.permute(0, 1, 2, 4, 3))
         fi = torch.stack([log[:, :, :, 2, 1], log[:, :, :, 2, 0], log[:, :, :, 1, 0]], dim=3) #[ num, frame, N , 3]
         #print(torch.norm(fi, 2, 3).shape)
@@ -299,20 +321,22 @@ class RotMap(torch.nn.Module):
         :param x: train or test with the dimension of [N ,D_in, D_in, num, frame]
         :return:
         """
-        # batch version
+        #batch version
         x = x.permute(4, 0, 3, 1, 2) #frame, N,  num, D_in, D_in
         w = self.w.permute(2, 0, 1)
         w = w.unsqueeze(0).unsqueeze(0).expand(x.shape[0], x.shape[1], x.shape[2], x.shape[3], x.shape[4])
         x = torch.matmul(w, x)
         x = x.permute(1, 3, 4, 2, 0)
 
-        #for i in prange(x.shape[0]):
-        #    for j in prange(x.shape[4]):
-        #        for z in prange(x.shape[3]):
+        # for i in range(x.shape[0]):
+        #    for j in range(x.shape[4]):
+        #        for z in range(x.shape[3]):
         #            x[i, :, :, z, j] = self.w[:, :, z].mm(x[i, :, :, z, j])
+        #            so3Chech(x[i, :, :, z, j])
                     #li.append([i, j, z])
 
         return x
+
 
 class BatchTrace(torch.nn.Module):
 
@@ -328,12 +352,18 @@ class BatchTrace(torch.nn.Module):
         return tr
 
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-print(device)
-net = LieNet()
-train = torch.randn(30, 3, 3, 342, 100).to(device)
-print(net.parameters())
-net.to(device)
-y = net(train)
-#y = net.relu(train)
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# print(device)
+# net = LieNet()
+# train = torch.randn(2, 3, 3, 342, 100).to(device)
+# for i0 in range(2):
+#     for i3 in range(342):
+#         for i4 in range(100):
+#             a = torch.randn(3, 3)
+#             u, s, v = torch.svd(a)
+#             train[i0, :, :, i3, i4] = u
+# print(net.parameters())
+# net.to(device)
+# y = net(train)
+
 
