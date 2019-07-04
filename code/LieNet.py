@@ -7,9 +7,9 @@ from torch.multiprocessing import Pool
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def so3Check(r): #  [N ,D_in, D_in, num, frame]
-    for i0 in range(r.shape[0]):
-        for i3 in range(r.shape[3]):
-            for i4 in range(r.shape[4]):
+    for i0 in range(r.shape[0],10):
+        for i3 in range(r.shape[3],100):
+            for i4 in range(r.shape[4],30):
                 k = r[i0,:,:, i3, i4].mm(r[i0,:,:, i3, i4].t())
                 dig = k[0, 0] + k[1, 1] +k[2, 2]
                 d = abs(dig.item() - 3.)
@@ -19,7 +19,7 @@ def so3Check(r): #  [N ,D_in, D_in, num, frame]
 
 class LieNet(nn.Module):
 
-    def __init__(self):
+    def __init__(self, device):
         super(LieNet, self).__init__()
         self.rot1 = RotMap(3,  342)
         self.pool1 = Pooling('space')
@@ -28,7 +28,7 @@ class LieNet(nn.Module):
         self.rot3 = RotMap(3, 171)
         self.pool3 = Pooling('time')
         self.log = LogMap()
-        self.relu = Relu()
+        self.relu = Relu(device)
         self.fc1 = nn.Linear(4104, 20)
         self.softmax = nn.Softmax(1)
 
@@ -37,7 +37,7 @@ class LieNet(nn.Module):
         x = self.rot1(x)
         # print(time.time() - s)
         # print(x.shape)
-        #so3Check(x)
+        so3Check(x)
 
         # s = time.time()
         x = self.pool1(x)
@@ -241,12 +241,16 @@ class LogMap(torch.nn.Module):
 
         maskacos = (torch.abs(mtrc + 1) > epsilon) * (torch.abs(mtrc - 3) > epsilon)
         mtrcacos = torch.acos((mtrc-1)/2) * maskacos.float()
+        j = torch.isnan(mtrcacos).sum().item()
+        assert j != 0
 
         return mtrcpi + mtrcacos
 
     def cal_roc_axis_batch(self,r): # [ num, frame, N ,D_in, D_in]
         angel = self.cal_roc_angel_batch(r)  # [ num, frame, N]
         sin = torch.sin(angel)
+        mask = sin - 0.0 <= 1e-12
+        sin += mask.float()
         #print(sin[0, 0, 0])
         log = (angel / (2 * sin)).unsqueeze(3).unsqueeze(4) * (r - r.permute(0, 1, 2, 4, 3))
         fi = torch.stack([log[:, :, :, 2, 1], log[:, :, :, 2, 0], log[:, :, :, 1, 0]], dim=3) #[ num, frame, N , 3]
@@ -277,6 +281,10 @@ class LogMap(torch.nn.Module):
 
 class Relu(torch.nn.Module):
 
+    def __init__(self, device):
+        super(Relu, self).__init__()
+        self.device = device
+
     def forward(self, x):
         epslon = 0.3
 
@@ -294,10 +302,10 @@ class Relu(torch.nn.Module):
         #         Y[i * 4: i * 4 + 4, j] = r_t
 
         # batch version
-        r_max = torch.max(x, torch.tensor(epslon))
+        r_max = torch.max(x, torch.tensor(epslon).to(self.device))
         r_mask = x > 0
         r_positive = torch.mul(r_max, r_mask.float())
-        r_min = torch.min(x, torch.tensor(-epslon))
+        r_min = torch.min(x, torch.tensor(-epslon).to(self.device))
         r_mask = x < 0
         r_negative = torch.mul(r_min, r_mask.float())
         Y = r_positive + r_negative

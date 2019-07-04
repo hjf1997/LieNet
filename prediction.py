@@ -15,19 +15,21 @@ def train(datat, iter, train):
 
     if datat=='g3d':
         dataset = G3dDataset(train=train)
-        trainloader = DataLoader(dataset, batch_size=30, shuffle=True, num_workers=0)
+        trainloader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=0)
     elif datat=='CSL':
         pass
-
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(device)
     if train:
-        net = LieNet()
+        net = LieNet(device)
+        net.to(device)
 
         for epoch in range(iter):
             running_loss = 0.0
             for i, data in enumerate(trainloader, 0):
 
-                inputs = data['fea'].float()
-                labels = data['label']
+                inputs = data['fea'].float().to(device)
+                labels = data['label'].to(device)
                 outputs = net(inputs)
                 loss_ = loss.softmax_loss_LieNet(outputs, labels)
                 running_loss += loss_
@@ -53,6 +55,8 @@ def train(datat, iter, train):
                         count += 1
                         param.data.sub_(0.01 * param.grad.data)
             print(running_loss/(i+1))
+
+
 train('g3d', 4000, True)
 
 
