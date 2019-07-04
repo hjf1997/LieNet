@@ -30,6 +30,7 @@ class LieNet(nn.Module):
         self.log = LogMap()
         self.relu = Relu()
         self.fc1 = nn.Linear(4104, 20)
+        self.softmax = nn.Softmax(1)
 
     def forward(self, x):
         # s = time.time()
@@ -82,6 +83,7 @@ class LieNet(nn.Module):
         x = self.fc1(x)
         # print(time.time() - s)
         # print(x.shape)
+        x = self.softmax(x)
 
         return x
 
@@ -364,5 +366,8 @@ class BatchTrace(torch.nn.Module):
 # print(net.parameters())
 # net.to(device)
 # y = net(train)
+
+#
+
 
 
