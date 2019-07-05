@@ -10,6 +10,14 @@ import torch.optim as optim
 from load_g3d import G3dDataset
 import loss
 from utils import egrad2rgrad, retr
+import torch.nn.functional as F
+
+def acc(pred, labels):
+    pred = F.softmax(pred, 1)
+    _, pred = torch.max(pred, 1)
+    train_correct = (pred == (labels - 1)).sum().float()
+    acc = train_correct / labels.shape[0]
+    return acc
 
 def train(datat, iter, train):
 
@@ -20,19 +28,23 @@ def train(datat, iter, train):
         pass
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(device)
+    critetion = torch.nn.CrossEntropyLoss()
+
     if train:
         net = LieNet(device)
         net.to(device)
 
         for epoch in range(iter):
             running_loss = 0.0
+            accuracy = 0.0
             for i, data in enumerate(trainloader, 0):
 
                 inputs = data['fea'].float().to(device)
                 labels = data['label'].to(device)
                 outputs = net(inputs)
-                loss_ = loss.softmax_loss_LieNet(outputs, labels)
+                loss_ = critetion(outputs, labels-1)
                 running_loss += loss_
+                accuracy += acc(outputs, labels)
                 net.zero_grad()
                 loss_.backward()
                 # print(net.rot1.w[:, :,1])
@@ -53,8 +65,10 @@ def train(datat, iter, train):
                         param.data = data
                     else:
                         count += 1
-                        param.data.sub_(0.01 * param.grad.data)
+                        param.data.sub_(0.1 * param.grad.data)
+
             print(running_loss/(i+1))
+            print(accuracy/(i+1))
 
 
 train('g3d', 4000, True)
