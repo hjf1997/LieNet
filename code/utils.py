@@ -1,6 +1,5 @@
+# implemented by junfeng Hu
 import torch
-import numpy as np
-
 
 def multiprod(A, B):
     """

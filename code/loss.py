@@ -1,6 +1,5 @@
+# implemented by junfeng Hu
 import torch
-import numpy as np
-import torch.nn.functional as F
 
 def softmax_loss_LieNet(x, c):
     """

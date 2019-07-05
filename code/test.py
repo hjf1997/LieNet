@@ -1,7 +1,5 @@
 import torch
 import numpy as np
-from pymanopt.manifolds import Rotations
-from utils import egrad2rgrad, retr
 import scipy.io as scio
 import torch.nn.functional as F
 import torch.nn as nn
@@ -29,7 +27,7 @@ class Net(nn.Module):
         self.conv2 = nn.Conv2d(6, 16, 3)
         self.fc1 = nn.Linear(16*6*6,120)
         self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
+        self.fc3 = nn.Linear(84, 20)
 
     def forward(self, x):
         x = F.max_pool2d(F.relu(self.conv1(x)), (2,2))
@@ -49,10 +47,10 @@ class Net(nn.Module):
 
 
 net = Net()
-input = torch.randn(10 , 1, 32, 32)
+input = torch.randn(30 , 1, 32, 32)
 out = net(input)
 
-target = (torch.ones(10) * 9).long()
+target = (torch.ones(30) * 19).long()
 #target = target.view(1, -1)
 critetion = nn.CrossEntropyLoss()
 

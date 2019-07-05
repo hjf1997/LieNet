@@ -1,16 +1,14 @@
-import torch
-import numpy as np
-import os
+# implemented by junfeng Hu
 import sys
 sys.path.append('./code')
 
+import torch
 from LieNet import LieNet
 from torch.utils.data import DataLoader
-import torch.optim as optim
 from load_g3d import G3dDataset
-import loss
 from utils import egrad2rgrad, retr
 import torch.nn.functional as F
+
 
 def acc(pred, labels):
     pred = F.softmax(pred, 1)
@@ -19,25 +17,33 @@ def acc(pred, labels):
     acc = train_correct / labels.shape[0]
     return acc
 
+
 def train(datat, iter, train):
 
-    if datat=='g3d':
-        dataset = G3dDataset(train=train)
-        trainloader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=0)
-    elif datat=='CSL':
+    if datat == 'g3d':
+        train_dataset = G3dDataset(train=True)
+        train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=0)
+        test_dataset = G3dDataset(train=False)
+        test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True, num_workers=0)
+    elif datat == 'CSL':
         pass
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(device)
     critetion = torch.nn.CrossEntropyLoss()
+    net = LieNet(device)
+    net.to(device)
+
+    if torch.cuda.device_count() > 1:
+        print("Let.s use {} GPUs!".format(str(torch.cuda.device_count())))
+        net = torch.nn.DataParallel(net)
 
     if train:
-        net = LieNet(device)
-        net.to(device)
 
         for epoch in range(iter):
             running_loss = 0.0
             accuracy = 0.0
-            for i, data in enumerate(trainloader, 0):
+            for i, data in enumerate(train_loader, 0):
 
                 inputs = data['fea'].float().to(device)
                 labels = data['label'].to(device)
@@ -47,17 +53,10 @@ def train(datat, iter, train):
                 accuracy += acc(outputs, labels)
                 net.zero_grad()
                 loss_.backward()
-                # print(net.rot1.w[:, :,1])
-                # for i in range(1):
-                #     param = eval('net.rot'+str(i+1)+'.w')
-                #     grad = egrad2rgrad(param ,param.grad)
-                #     net.rot1.w = retr(param, -0.001*grad, param.shape[-1])
-                # print(net.rot1.w[:,:,1])
+
                 _ = torch.nn.utils.clip_grad_norm_(net.parameters(), 5)
                 count = 0
                 for param in net.parameters():
-                    #if count == 3:
-                        #print(param.data[1,:])
                     if count < 3:
                         count += 1
                         param.grad.data = egrad2rgrad(param.grad.data, param.data)
@@ -67,8 +66,24 @@ def train(datat, iter, train):
                         count += 1
                         param.data.sub_(0.1 * param.grad.data)
 
-            print(running_loss/(i+1))
-            print(accuracy/(i+1))
+            print("epoch:{}, train_loss:{}".format(str(epoch+1), str((running_loss/(i+1)).item())))
+            print("Train accuracy:{}".format(str((accuracy/(i+1)).item())))
+
+            accuracy = 0.0
+            running_loss = 0.0
+
+            with torch.no_grad():
+                for i, data in enumerate(test_loader, 0):
+
+                    inputs = data['fea'].float().to(device)
+                    labels = data['label'].to(device)
+                    outputs = net(inputs)
+                    loss_ = critetion(outputs, labels-1)
+                    running_loss += loss_
+                    accuracy += acc(outputs, labels)
+            print("epoch:{}, test_loss:{}".format(str(epoch + 1), str((running_loss / (i + 1)).item())))
+            print("Test accuracy:{}".format(str((accuracy / (i + 1)).item())))
+            print("-------------------------------------------------------------------")
 
 
 train('g3d', 4000, True)
