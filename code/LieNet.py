@@ -274,10 +274,12 @@ class Relu(torch.nn.Module):
         epslon = 0.3
 
         # batch version
-        r_max = torch.max(x, torch.tensor(epslon).to(self.device))
+        #r_max = torch.max(x, torch.tensor(epslon).to(self.device))
+        r_max = (x < epslon).float() * epslon + (x >= epslon).float() * x
         r_mask = x > 0
         r_positive = torch.mul(r_max, r_mask.float())
-        r_min = torch.min(x, torch.tensor(-epslon).to(self.device))
+        #r_min = torch.min(x, torch.tensor(-epslon).to(self.device))
+        r_min = (x > -epslon).float() * -epslon + (x <= -epslon).float() * x
         r_mask = x < 0
         r_negative = torch.mul(r_min, r_mask.float())
         Y = r_positive + r_negative
