@@ -7,6 +7,7 @@ from LieNet import LieNet
 from torch.utils.data import DataLoader
 from load_g3d import G3dDataset
 from utils import egrad2rgrad, retr
+from torch import autograd
 import torch.nn.functional as F
 
 
@@ -47,24 +48,28 @@ def train(datat, iter, train):
 
                 inputs = data['fea'].float().to(device)
                 labels = data['label'].to(device)
-                outputs = net(inputs)
-                loss_ = critetion(outputs, labels-1)
-                running_loss += loss_
-                accuracy += acc(outputs, labels)
-                net.zero_grad()
-                loss_.backward()
+                with autograd.detect_anomaly():
+                    outputs = net(inputs)
+                    loss_ = critetion(outputs, labels-1)
+                    running_loss += loss_
+                    accuracy += acc(outputs, labels)
+                    net.zero_grad()
+                    loss_.backward()
 
                 _ = torch.nn.utils.clip_grad_norm_(net.parameters(), 5)
                 count = 0
                 for param in net.parameters():
                     if count < 3:
                         count += 1
-                        param.grad.data = egrad2rgrad(param.grad.data, param.data)
-                        data = retr(param.data, -0.1*param.grad.data, param.data.shape[-1])
-                        param.data = data
+                        grad = egrad2rgrad(param.data.permute(1, 0, 2),
+                                           param.grad.data.permute(1, 0, 2)).permute(1, 0, 2)
+                        grad = retr(param.data.permute(1,0,2), -0.01*grad.permute(1,0,2),
+                                    param.data.shape[-1]).permute(1,0,2)
+                        param.data.sub_(param.data)
+                        param.data.sub_(grad * -1)
                     else:
                         count += 1
-                        param.data.sub_(0.1 * param.grad.data)
+                        param.data.sub_(0.01 * param.grad.data)
 
             print("epoch:{}, train_loss:{}".format(str(epoch+1), str((running_loss/(i+1)).item())))
             print("Train accuracy:{}".format(str((accuracy/(i+1)).item())))

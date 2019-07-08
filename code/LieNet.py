@@ -12,15 +12,21 @@ def so3Check(r): #  [N ,D_in, D_in, num, frame]
     :param r:
     :return: None
     """
-    for i0 in range(r.shape[0],10):
-        for i3 in range(r.shape[3],100):
-            for i4 in range(r.shape[4],30):
+    for i0 in range(r.shape[0]):
+        for i3 in range(r.shape[3]):
+            for i4 in range(r.shape[4]):
                 k = r[i0,:,:, i3, i4].mm(r[i0,:,:, i3, i4].t())
-                dig = k[0, 0] + k[1, 1] +k[2, 2]
-                d = abs(dig.item() - 3.)
-                if d > 0.01:
-                    print("Sth goes wrong: i0={0} i3={1} i4={2} dig={3}".format(i0, i3, i4, dig))
-                    assert d <= 0.01
+                dig1 = k[0, 0] - 1.0
+                dig2 = k[1, 1] - 1.0
+                dig3 = k[2, 2] - 1.0
+                if dig1 > 0.0001 or dig2 > 0.0001 or dig3 > 0.0001:
+                    print("Sth goes wrong != I: i0={0} i3={1} i4={2}".format(i0, i3, i4))
+                    assert 1 == 1
+                if torch.det(r[i0,:,:, i3, i4]) - 1.0 > 0.001:
+                    print("Sth goes wrong det != 1: i0={0} i3={1} i4={2} dig={3}"
+                          .format(i0, i3, i4, torch.det(r[i0,:,:, i3, i4])))
+                    assert 1 == 1
+
 
 
 class LieNet(nn.Module):
@@ -101,16 +107,16 @@ class Pooling(torch.nn.Module):
         :param r: SO(3) tensor with the dimension of  [frame, N,  num, D_in, D_in]
         :return: euler angle with shape [ frame, N,  num]
         """
-        epsilon = 1e-12;
+        epsilon = 1e-4;
 
         tr = BatchTrace()
         mtrc = tr(r)
 
-        maskpi = (torch.abs(mtrc + 1) <= epsilon) * (torch.abs(mtrc - 3) > epsilon)
-        mtrcpi = mtrc * maskpi.float() * np.pi
+        maskpi = ((torch.abs(mtrc + 1) <= epsilon) * (torch.abs(mtrc - 3) > epsilon)).float()
+        mtrcpi = mtrc * maskpi * np.pi
 
-        maskacos = (torch.abs(mtrc + 1) > epsilon) * (torch.abs(mtrc - 3) > epsilon)
-        mtrcacos = torch.acos((mtrc-1)/2) * maskacos.float()
+        maskacos = ((torch.abs(mtrc + 1) > epsilon) * (torch.abs(mtrc - 3) > epsilon)).float()
+        mtrcacos = torch.acos((mtrc*maskacos-1)/2) * maskacos
 
         return mtrcpi + mtrcacos
 
@@ -178,26 +184,37 @@ class LogMap(torch.nn.Module):
         Y = Y.contiguous().view(Y.shape[0], -1)
         return Y
 
-    def cal_roc_angel_batch(self, r): # frame, N,  num, D_in, D_in
+    def cal_roc_angel_batch(self, r):
         """
         Calculate euler angle of each matrix in tensor r.
-        :param r: SO(3) tensor with the dimension of  [frame, N,  num, D_in, D_in]
+        :param r: SO(3) tensor with the dimension of  [ num, frame, N ,D_in, D_in]
         :return: euler angle with shape [ frame, N,  num]
         """
+        #print(r.shape)
+  #      k = r.permute(2, 3, 4, 0, 1)
+  #      so3Check(k)  # [N ,D_in, D_in, num, frame]
 
-        epsilon = 1e-12;
+        epsilon = 1e-4;
         tr = BatchTrace()
         mtrc = tr(r)
 
-        maskpi = (torch.abs(mtrc + 1) <= epsilon) * (torch.abs(mtrc - 3) > epsilon)
-        mtrcpi = mtrc * maskpi.float() * np.pi
+        maskpi = ((torch.abs(mtrc + 1) <= epsilon) * (torch.abs(mtrc - 3) > epsilon)).float()
+        mtrcpi = mtrc * maskpi * np.pi
 
-        maskacos = (torch.abs(mtrc + 1) > epsilon) * (torch.abs(mtrc - 3) > epsilon)
-        mtrcacos = torch.acos((mtrc-1)/2) * maskacos.float()
-        j = torch.isnan(mtrcacos).sum().item()
+        maskacos = ((torch.abs(mtrc + 1) > epsilon) * (torch.abs(mtrc - 3) > epsilon)).float()
+        #k = (torch.abs((mtrc*maskacos-1)/2) > 1.0).sum().item()
+        # for i0 in range(r.shape[0]):
+        #     for i1 in range(r.shape[1]):
+        #         for i2 in range(r.shape[2]):
+        #             if torch.abs((mtrc[i0, i1, i2]*maskacos[i0, i1, i2]-1)/2) > 1.0:
+        #                 print("error at {}, {}, {} with {} has acos{}".format(str(i0), str(i1), str(i2),
+        #                                                            str(torch.abs((mtrc[i0, i1, i2]*maskacos-1)/2).item()),
+        #                                                                       torch.acos((mtrc[i0, i1, i2]-1)/2)))
+        mtrcacos = torch.acos((mtrc*maskacos-1)/2) * maskacos
+        #j = torch.isnan(mtrcacos).sum().item()
 
         # check nan in matrix
-        assert j != 0
+        #assert j != 0
 
         return mtrcpi + mtrcacos
 
