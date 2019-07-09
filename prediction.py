@@ -61,10 +61,12 @@ def train(datat, iter, train):
                 for param in net.parameters():
                     if count < 3:
                         count += 1
-                        grad = egrad2rgrad(param.data.permute(1, 0, 2),
-                                           param.grad.data.permute(1, 0, 2)).permute(1, 0, 2)
-                        grad = retr(param.data.permute(1,0,2), -0.01*grad.permute(1,0,2),
-                                    param.data.shape[-1]).permute(1,0,2)
+                        #grad = egrad2rgrad(param.data.permute(1, 0, 2),
+                        #                   param.grad.data.permute(1, 0, 2)).permute(1, 0, 2)
+                        #grad = retr(param.data.permute(1,0,2), -0.01*grad.permute(1,0,2),
+                        #            param.data.shape[-1]).permute(1,0,2)
+                        grad = egrad2rgrad(param.data, param.grad.data)
+                        grad = retr(param.data, -0.01*grad, param.data.shape[-1])
                         param.data.sub_(param.data)
                         param.data.sub_(grad * -1)
                     else:
@@ -89,6 +91,9 @@ def train(datat, iter, train):
             print("epoch:{}, test_loss:{}".format(str(epoch + 1), str((running_loss / (i + 1)).item())))
             print("Test accuracy:{}".format(str((accuracy / (i + 1)).item())))
             print("-------------------------------------------------------------------")
+
+            if epoch % 1000 == 0:
+                torch.save(net.state_dict(), './model/{}.pth'.format(str(epoch)))
 
 
 train('g3d', 4000, True)
