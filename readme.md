@@ -1,4 +1,4 @@
-# Lie-LSTM
+# LieNet
 ## Introduction
 This is the pytorch version of LieNet, which is from the paper Zhiwu Huang, Chengde Wan, Thomas Probst, Luc Van Gool. Deep Learning on Lie Groups for Skeleton-based Action Recognition, In Proc. CVPR 2017.
 ## Usage
